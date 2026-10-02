@@ -1,193 +1,563 @@
 using Android.App;
-using Android.Content.PM;
+using Android.Content;
+using Android.Graphics;
 using Android.OS;
+using Android.Views;
+using Android.Widget;
+using System;
+using System.Collections;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
+using UndertaleModLib;
 
 namespace UndertaleModTool.Android;
 
 [Activity(
     MainLauncher = true,
     Exported = true,
-    Theme = "@android:style/Theme.Material.NoActionBar",
-    ScreenOrientation = ScreenOrientation.Unspecified)]
+    Theme = "@android:style/Theme.Material.NoActionBar"
+)]
 public class MainActivity : Activity
 {
     const int OpenFileRequest = 1001;
 
-    Android.Widget.TextView? statusText;
-    Android.Widget.TextView? fileText;
-    Android.Widget.LinearLayout? resourceList;
+    UndertaleData? gameData;
+    string? currentFileName;
+
+    LinearLayout? resourcePanel;
+    LinearLayout? detailPanel;
+    TextView? statusText;
+    TextView? fileText;
+    EditText? searchBox;
+
+    string currentCategory = "";
 
     protected override void OnCreate(Bundle? savedInstanceState)
     {
         base.OnCreate(savedInstanceState);
-
-        BuildUi();
+        BuildUI();
     }
 
-    void BuildUi()
+    void BuildUI()
     {
-        var root = new Android.Widget.LinearLayout(this)
+        var root = new LinearLayout(this)
         {
-            Orientation = Android.Widget.Orientation.Vertical
+            Orientation = Orientation.Vertical
         };
-        root.SetBackgroundColor(Android.Graphics.Color.Rgb(18, 18, 18));
 
-        var toolbar = new Android.Widget.LinearLayout(this)
+        root.SetBackgroundColor(Color.Rgb(18, 18, 18));
+
+        // ===== TOP BAR =====
+
+        var toolbar = new LinearLayout(this)
         {
-            Orientation = Android.Widget.Orientation.Horizontal
+            Orientation = Orientation.Horizontal
         };
-        toolbar.SetPadding(20, 20, 20, 12);
 
-        var title = MakeText("UndertaleModTool", 22);
-        title.SetTextColor(Android.Graphics.Color.White);
-        toolbar.AddView(title, new Android.Widget.LinearLayout.LayoutParams(
-            0, Android.Views.ViewGroup.LayoutParams.WrapContent, 1));
+        toolbar.SetPadding(12, 8, 12, 4);
 
-        var open = MakeButton("OPEN");
-        open.Click += (_, _) => OpenGameFile();
-        toolbar.AddView(open);
+        var title = MakeText("UndertaleModTool", 21);
+        title.SetTextColor(Color.White);
+
+        toolbar.AddView(
+            title,
+            new LinearLayout.LayoutParams(0, -2, 1)
+        );
+
+        var openButton = MakeButton("OPEN");
+        openButton.Click += (_, _) => OpenFile();
+
+        toolbar.AddView(openButton);
 
         root.AddView(toolbar);
 
-        fileText = MakeText("No game file opened", 14);
-        fileText.SetTextColor(Android.Graphics.Color.LightGray);
-        fileText.SetPadding(20, 0, 20, 18);
+        // ===== FILE NAME =====
+
+        fileText = MakeText(
+            "No GameMaker data file opened",
+            13
+        );
+
+        fileText.SetTextColor(Color.LightGray);
+        fileText.SetPadding(14, 0, 14, 8);
+
         root.AddView(fileText);
 
-        var actions = new Android.Widget.LinearLayout(this)
+        // ===== SEARCH =====
+
+        searchBox = new EditText(this)
         {
-            Orientation = Android.Widget.Orientation.Horizontal
+            Hint = "Search resources..."
         };
-        actions.SetPadding(12, 0, 12, 12);
 
-        foreach (var name in new[] { "SAVE", "SAVE AS", "UNDO", "REDO" })
+        searchBox.SetTextColor(Color.White);
+        searchBox.SetHintTextColor(Color.Gray);
+
+        searchBox.TextChanged += (_, _) =>
         {
-            var button = MakeButton(name);
-            button.Click += (_, _) =>
-            {
-                statusText!.Text = name + " is not connected to the game parser yet.";
-            };
-            actions.AddView(button, new Android.Widget.LinearLayout.LayoutParams(
-                0, Android.Views.ViewGroup.LayoutParams.WrapContent, 1));
-        }
-
-        root.AddView(actions);
-
-        var split = new Android.Widget.LinearLayout(this)
-        {
-            Orientation = Android.Widget.Orientation.Horizontal
+            if (!string.IsNullOrEmpty(currentCategory))
+                ShowResources(currentCategory);
         };
-        split.SetPadding(12, 0, 12, 12);
 
-        var categories = new[] { "Sprites", "Rooms", "Objects", "Scripts", "Sounds", "Fonts" };
+        root.AddView(
+            searchBox,
+            new LinearLayout.LayoutParams(-1, -2)
+        );
 
-        resourceList = new Android.Widget.LinearLayout(this)
+        // ===== MAIN AREA =====
+
+        var main = new LinearLayout(this)
         {
-            Orientation = Android.Widget.Orientation.Vertical
+            Orientation = Orientation.Horizontal
         };
-        resourceList.SetBackgroundColor(Android.Graphics.Color.Rgb(30, 30, 30));
-        resourceList.SetPadding(8, 8, 8, 8);
 
-        foreach (var category in categories)
+        main.SetPadding(8, 4, 8, 4);
+
+        // Resource list
+
+        resourcePanel = new LinearLayout(this)
         {
-            var item = MakeButton(category);
-            item.TextSize = 15;
-            item.Click += (_, _) =>
-            {
-                statusText!.Text = category + " selected";
-            };
-            resourceList.AddView(item);
-        }
-
-        var scroll = new Android.Widget.ScrollView(this);
-        scroll.AddView(resourceList);
-        split.AddView(scroll, new Android.Widget.LinearLayout.LayoutParams(
-            0, 0, 0.32f));
-
-        var editor = new Android.Widget.LinearLayout(this)
-        {
-            Orientation = Android.Widget.Orientation.Vertical
+            Orientation = Orientation.Vertical
         };
-        editor.SetPadding(16, 8, 8, 8);
 
-        var editorTitle = MakeText("Editor", 20);
-        editorTitle.SetTextColor(Android.Graphics.Color.White);
-        editor.AddView(editorTitle);
+        resourcePanel.SetBackgroundColor(
+            Color.Rgb(28, 28, 28)
+        );
 
-        var editorText = new Android.Widget.EditText(this)
+        var resourceScroll = new ScrollView(this);
+        resourceScroll.AddView(resourcePanel);
+
+        main.AddView(
+            resourceScroll,
+            new LinearLayout.LayoutParams(
+                0,
+                0,
+                0.40f
+            )
+        );
+
+        // Details
+
+        detailPanel = new LinearLayout(this)
         {
-            Hint = "Select a resource to edit it...",
-            Gravity = Android.Views.GravityFlags.Top | Android.Views.GravityFlags.Start,
-            InputType = Android.Text.InputTypes.ClassText |
-                        Android.Text.InputTypes.TextFlagMultiLine
+            Orientation = Orientation.Vertical
         };
-        editorText.SetTextColor(Android.Graphics.Color.White);
-        editorText.SetHintTextColor(Android.Graphics.Color.Gray);
-        editorText.SetBackgroundColor(Android.Graphics.Color.Rgb(25, 25, 25));
-        editorText.SetPadding(16, 16, 16, 16);
-        editor.AddView(editorText, new Android.Widget.LinearLayout.LayoutParams(
-            -1, 0, 1));
 
-        split.AddView(editor, new Android.Widget.LinearLayout.LayoutParams(
-            0, 0, 0.68f));
+        detailPanel.SetPadding(14, 10, 10, 10);
 
-        root.AddView(split, new Android.Widget.LinearLayout.LayoutParams(
-            -1, 0, 1));
+        var detailScroll = new ScrollView(this);
+        detailScroll.AddView(detailPanel);
 
-        statusText = MakeText("Ready — Android UI prototype", 13);
-        statusText.SetTextColor(Android.Graphics.Color.LightGray);
-        statusText.SetPadding(20, 8, 20, 20);
+        main.AddView(
+            detailScroll,
+            new LinearLayout.LayoutParams(
+                0,
+                0,
+                0.60f
+            )
+        );
+
+        root.AddView(
+            main,
+            new LinearLayout.LayoutParams(
+                -1,
+                0,
+                1
+            )
+        );
+
+        // ===== STATUS =====
+
+        statusText = MakeText(
+            "Ready",
+            12
+        );
+
+        statusText.SetTextColor(Color.LightGray);
+        statusText.SetPadding(14, 5, 14, 10);
+
         root.AddView(statusText);
 
         SetContentView(root);
+
+        ShowCategories();
+        ShowDetails(
+            "Welcome",
+            "Open a GameMaker data file to begin."
+        );
     }
 
-    Android.Widget.TextView MakeText(string text, float size)
+    TextView MakeText(
+        string text,
+        float size
+    )
     {
-        var view = new Android.Widget.TextView(this)
+        var view = new TextView(this)
         {
             Text = text,
             TextSize = size
         };
+
+        view.SetPadding(8, 8, 8, 8);
+
         return view;
     }
 
-    Android.Widget.Button MakeButton(string text)
+    Button MakeButton(string text)
     {
-        var button = new Android.Widget.Button(this)
+        var button = new Button(this)
         {
             Text = text
         };
+
         return button;
     }
 
-    void OpenGameFile()
+    void OpenFile()
     {
-        var intent = new Android.Content.Intent(Android.Content.Intent.ActionOpenDocument);
-        intent.AddCategory(Android.Content.Intent.CategoryOpenable);
+        var intent = new Intent(
+            Intent.ActionOpenDocument
+        );
+
+        intent.AddCategory(
+            Intent.CategoryOpenable
+        );
+
         intent.SetType("*/*");
-        StartActivityForResult(intent, OpenFileRequest);
+
+        StartActivityForResult(
+            intent,
+            OpenFileRequest
+        );
     }
 
     protected override void OnActivityResult(
         int requestCode,
-        Android.App.Result resultCode,
-        Android.Content.Intent? data)
+        Result resultCode,
+        Intent? data
+    )
     {
-        base.OnActivityResult(requestCode, resultCode, data);
+        base.OnActivityResult(
+            requestCode,
+            resultCode,
+            data
+        );
 
-        if (requestCode != OpenFileRequest ||
-            resultCode != Android.App.Result.Ok ||
-            data?.Data is null)
+        if (
+            requestCode != OpenFileRequest ||
+            resultCode != Result.Ok ||
+            data?.Data == null
+        )
+        {
             return;
+        }
 
         var uri = data.Data;
-        var name = uri.LastPathSegment ?? uri.ToString();
 
-        if (fileText != null)
-            fileText.Text = "Opened: " + name;
+        currentFileName =
+            uri.LastPathSegment ??
+            "GameMaker data";
 
+        fileText!.Text =
+            "Opening: " + currentFileName;
+
+        SetStatus(
+            "Loading GameMaker data..."
+        );
+
+        _ = Task.Run(
+            () => LoadGame(uri)
+        );
+    }
+
+    void LoadGame(
+        Android.Net.Uri uri
+    )
+    {
+        try
+        {
+            using var stream =
+                ContentResolver!.OpenInputStream(uri);
+
+            if (stream == null)
+                throw new IOException(
+                    "Could not open file."
+                );
+
+            var loaded =
+                UndertaleIO.Read(
+                    stream
+                );
+
+            RunOnUiThread(() =>
+            {
+                gameData?.Dispose();
+
+                gameData = loaded;
+
+                fileText!.Text =
+                    "Loaded: " + currentFileName;
+
+                ShowCategories();
+
+                ShowDetails(
+                    "Game loaded",
+                    "Choose a resource category."
+                );
+
+                SetStatus(
+                    "Loaded successfully."
+                );
+            });
+        }
+        catch (Exception ex)
+        {
+            RunOnUiThread(() =>
+            {
+                SetStatus(
+                    "Error: " + ex.Message
+                );
+
+                Toast.MakeText(
+                    this,
+                    "Could not open file.",
+                    ToastLength.Long
+                )?.Show();
+            });
+        }
+    }
+
+    void ShowCategories()
+    {
+        if (resourcePanel == null)
+            return;
+
+        resourcePanel.RemoveAllViews();
+
+        AddCategory(
+            "Sprites",
+            gameData?.Sprites?.Count ?? 0
+        );
+
+        AddCategory(
+            "Rooms",
+            gameData?.Rooms?.Count ?? 0
+        );
+
+        AddCategory(
+            "Objects",
+            gameData?.GameObjects?.Count ?? 0
+        );
+
+        AddCategory(
+            "Scripts",
+            gameData?.Scripts?.Count ?? 0
+        );
+
+        AddCategory(
+            "Sounds",
+            gameData?.Sounds?.Count ?? 0
+        );
+
+        AddCategory(
+            "Fonts",
+            gameData?.Fonts?.Count ?? 0
+        );
+    }
+
+    void AddCategory(
+        string name,
+        int count
+    )
+    {
+        var button = MakeButton(
+            $"{name}\n{count} resources"
+        );
+
+        button.Gravity =
+            GravityFlags.Left;
+
+        button.Click += (_, _) =>
+        {
+            currentCategory = name;
+
+            if (searchBox != null)
+                searchBox.Text = "";
+
+            ShowResources(name);
+        };
+
+        resourcePanel?.AddView(button);
+    }
+
+    void ShowResources(
+        string category
+    )
+    {
+        if (
+            resourcePanel == null ||
+            gameData == null
+        )
+        {
+            return;
+        }
+
+        resourcePanel.RemoveAllViews();
+
+        var back = MakeButton("← Categories");
+
+        back.Click += (_, _) =>
+        {
+            currentCategory = "";
+
+            ShowCategories();
+
+            ShowDetails(
+                "Resource Browser",
+                "Choose a category."
+            );
+        };
+
+        resourcePanel.AddView(back);
+
+        IList? list = category switch
+        {
+            "Sprites" =>
+                gameData.Sprites,
+
+            "Rooms" =>
+                gameData.Rooms,
+
+            "Objects" =>
+                gameData.GameObjects,
+
+            "Scripts" =>
+                gameData.Scripts,
+
+            "Sounds" =>
+                gameData.Sounds,
+
+            "Fonts" =>
+                gameData.Fonts,
+
+            _ => null
+        };
+
+        if (list == null)
+            return;
+
+        string search =
+            searchBox?.Text?
+                .Trim()
+                .ToLowerInvariant()
+            ?? "";
+
+        foreach (
+            var item in list.Cast<object>()
+        )
+        {
+            string name =
+                item?.ToString()
+                ?? "(unnamed)";
+
+            if (
+                search.Length > 0 &&
+                !name.ToLowerInvariant()
+                    .Contains(search)
+            )
+            {
+                continue;
+            }
+
+            var button =
+                MakeButton(name);
+
+            button.Gravity =
+                GravityFlags.Left;
+
+            button.Click += (_, _) =>
+            {
+                ShowDetails(
+                    name,
+                    $"Type: {category}\n\n" +
+                    "Resource selected.\n\n" +
+                    "The editor for this resource " +
+                    "will be added in the next stages."
+                );
+            };
+
+            resourcePanel.AddView(button);
+        }
+
+        SetStatus(
+            $"{category}: {list.Count} resources"
+        );
+    }
+
+    void ShowDetails(
+        string title,
+        string description
+    )
+    {
+        if (detailPanel == null)
+            return;
+
+        detailPanel.RemoveAllViews();
+
+        var titleView =
+            MakeText(title, 22);
+
+        titleView.SetTextColor(
+            Color.White
+        );
+
+        detailPanel.AddView(
+            titleView
+        );
+
+        var separator =
+            MakeText(
+                "────────────────",
+                12
+            );
+
+        separator.SetTextColor(
+            Color.Gray
+        );
+
+        detailPanel.AddView(
+            separator
+        );
+
+        var body =
+            MakeText(
+                description,
+                15
+            );
+
+        body.SetTextColor(
+            Color.LightGray
+        );
+
+        detailPanel.AddView(
+            body
+        );
+    }
+
+    void SetStatus(
+        string message
+    )
+    {
         if (statusText != null)
-            statusText.Text = "File selected. Parser integration comes next.";
+            statusText.Text = message;
+    }
+
+    protected override void OnDestroy()
+    {
+        gameData?.Dispose();
+        gameData = null;
+
+        base.OnDestroy();
     }
 }

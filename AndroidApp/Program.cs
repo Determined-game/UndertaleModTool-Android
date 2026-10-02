@@ -4,12 +4,18 @@ using Android.Graphics;
 using Android.OS;
 using Android.Views;
 using Android.Widget;
+
 using System;
 using System.Collections;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+
 using UndertaleModLib;
+using UndertaleModLib.Models;
+using UndertaleModLib.Util;
+
+using ImageMagick;
 
 namespace UndertaleModTool.Android;
 
@@ -31,13 +37,26 @@ public class MainActivity : Activity
     TextView? fileText;
     EditText? searchBox;
 
+    ImageView? spritePreview;
+    TextView? frameText;
+
+    UndertaleSprite? selectedSprite;
+    Bitmap? currentBitmap;
+
+    int selectedFrame = 0;
+
     string currentCategory = "";
 
     protected override void OnCreate(Bundle? savedInstanceState)
     {
         base.OnCreate(savedInstanceState);
+
         BuildUI();
     }
+
+    // =========================================================
+    // UI
+    // =========================================================
 
     void BuildUI()
     {
@@ -48,7 +67,7 @@ public class MainActivity : Activity
 
         root.SetBackgroundColor(Color.Rgb(18, 18, 18));
 
-        // ===== TOP BAR =====
+        // ---------------- TOP BAR ----------------
 
         var toolbar = new LinearLayout(this)
         {
@@ -57,22 +76,34 @@ public class MainActivity : Activity
 
         toolbar.SetPadding(12, 8, 12, 4);
 
-        var title = MakeText("UndertaleModTool", 21);
+        var title = MakeText(
+            "UndertaleModTool",
+            21
+        );
+
         title.SetTextColor(Color.White);
 
         toolbar.AddView(
             title,
-            new LinearLayout.LayoutParams(0, -2, 1)
+            new LinearLayout.LayoutParams(
+                0,
+                -2,
+                1
+            )
         );
 
         var openButton = MakeButton("OPEN");
-        openButton.Click += (_, _) => OpenFile();
+
+        openButton.Click += (_, _) =>
+        {
+            OpenFile();
+        };
 
         toolbar.AddView(openButton);
 
         root.AddView(toolbar);
 
-        // ===== FILE NAME =====
+        // ---------------- FILE NAME ----------------
 
         fileText = MakeText(
             "No GameMaker data file opened",
@@ -80,11 +111,17 @@ public class MainActivity : Activity
         );
 
         fileText.SetTextColor(Color.LightGray);
-        fileText.SetPadding(14, 0, 14, 8);
+
+        fileText.SetPadding(
+            14,
+            0,
+            14,
+            8
+        );
 
         root.AddView(fileText);
 
-        // ===== SEARCH =====
+        // ---------------- SEARCH ----------------
 
         searchBox = new EditText(this)
         {
@@ -97,24 +134,34 @@ public class MainActivity : Activity
         searchBox.TextChanged += (_, _) =>
         {
             if (!string.IsNullOrEmpty(currentCategory))
+            {
                 ShowResources(currentCategory);
+            }
         };
 
         root.AddView(
             searchBox,
-            new LinearLayout.LayoutParams(-1, -2)
+            new LinearLayout.LayoutParams(
+                -1,
+                -2
+            )
         );
 
-        // ===== MAIN AREA =====
+        // ---------------- MAIN AREA ----------------
 
         var main = new LinearLayout(this)
         {
             Orientation = Orientation.Horizontal
         };
 
-        main.SetPadding(8, 4, 8, 4);
+        main.SetPadding(
+            8,
+            4,
+            8,
+            4
+        );
 
-        // Resource list
+        // ---------------- RESOURCE LIST ----------------
 
         resourcePanel = new LinearLayout(this)
         {
@@ -126,7 +173,10 @@ public class MainActivity : Activity
         );
 
         var resourceScroll = new ScrollView(this);
-        resourceScroll.AddView(resourcePanel);
+
+        resourceScroll.AddView(
+            resourcePanel
+        );
 
         main.AddView(
             resourceScroll,
@@ -137,17 +187,25 @@ public class MainActivity : Activity
             )
         );
 
-        // Details
+        // ---------------- DETAILS ----------------
 
         detailPanel = new LinearLayout(this)
         {
             Orientation = Orientation.Vertical
         };
 
-        detailPanel.SetPadding(14, 10, 10, 10);
+        detailPanel.SetPadding(
+            14,
+            10,
+            10,
+            10
+        );
 
         var detailScroll = new ScrollView(this);
-        detailScroll.AddView(detailPanel);
+
+        detailScroll.AddView(
+            detailPanel
+        );
 
         main.AddView(
             detailScroll,
@@ -167,21 +225,30 @@ public class MainActivity : Activity
             )
         );
 
-        // ===== STATUS =====
+        // ---------------- STATUS ----------------
 
         statusText = MakeText(
             "Ready",
             12
         );
 
-        statusText.SetTextColor(Color.LightGray);
-        statusText.SetPadding(14, 5, 14, 10);
+        statusText.SetTextColor(
+            Color.LightGray
+        );
+
+        statusText.SetPadding(
+            14,
+            5,
+            14,
+            10
+        );
 
         root.AddView(statusText);
 
         SetContentView(root);
 
         ShowCategories();
+
         ShowDetails(
             "Welcome",
             "Open a GameMaker data file to begin."
@@ -199,12 +266,19 @@ public class MainActivity : Activity
             TextSize = size
         };
 
-        view.SetPadding(8, 8, 8, 8);
+        view.SetPadding(
+            8,
+            8,
+            8,
+            8
+        );
 
         return view;
     }
 
-    Button MakeButton(string text)
+    Button MakeButton(
+        string text
+    )
     {
         var button = new Button(this)
         {
@@ -213,6 +287,10 @@ public class MainActivity : Activity
 
         return button;
     }
+
+    // =========================================================
+    // OPEN FILE
+    // =========================================================
 
     void OpenFile()
     {
@@ -281,14 +359,14 @@ public class MainActivity : Activity
                 ContentResolver!.OpenInputStream(uri);
 
             if (stream == null)
+            {
                 throw new IOException(
                     "Could not open file."
                 );
+            }
 
             var loaded =
-                UndertaleIO.Read(
-                    stream
-                );
+                UndertaleIO.Read(stream);
 
             RunOnUiThread(() =>
             {
@@ -327,6 +405,10 @@ public class MainActivity : Activity
             });
         }
     }
+
+    // =========================================================
+    // CATEGORIES
+    // =========================================================
 
     void ShowCategories()
     {
@@ -391,6 +473,10 @@ public class MainActivity : Activity
         resourcePanel?.AddView(button);
     }
 
+    // =========================================================
+    // RESOURCE LIST
+    // =========================================================
+
     void ShowResources(
         string category
     )
@@ -405,7 +491,9 @@ public class MainActivity : Activity
 
         resourcePanel.RemoveAllViews();
 
-        var back = MakeButton("← Categories");
+        var back = MakeButton(
+            "← Categories"
+        );
 
         back.Click += (_, _) =>
         {
@@ -478,6 +566,17 @@ public class MainActivity : Activity
 
             button.Click += (_, _) =>
             {
+                // NEW:
+                // Actual sprite editor/preview
+                if (
+                    category == "Sprites" &&
+                    item is UndertaleSprite sprite
+                )
+                {
+                    ShowSprite(sprite);
+                    return;
+                }
+
                 ShowDetails(
                     name,
                     $"Type: {category}\n\n" +
@@ -495,6 +594,315 @@ public class MainActivity : Activity
         );
     }
 
+    // =========================================================
+    // SPRITE EDITOR
+    // =========================================================
+
+    void ShowSprite(
+        UndertaleSprite sprite
+    )
+    {
+        selectedSprite = sprite;
+
+        selectedFrame = 0;
+
+        if (detailPanel == null)
+            return;
+
+        detailPanel.RemoveAllViews();
+
+        string spriteName =
+            sprite.Name?.Content ??
+            "(Unnamed Sprite)";
+
+        var title =
+            MakeText(
+                spriteName,
+                22
+            );
+
+        title.SetTextColor(
+            Color.White
+        );
+
+        detailPanel.AddView(title);
+
+        var info =
+            MakeText(
+                $"Sprite\n\n" +
+                $"Frames: {sprite.Textures.Count}\n" +
+                $"Width: {sprite.Width}\n" +
+                $"Height: {sprite.Height}",
+                15
+            );
+
+        info.SetTextColor(
+            Color.LightGray
+        );
+
+        detailPanel.AddView(info);
+
+        // ---------------- PREVIEW ----------------
+
+        spritePreview = new ImageView(this);
+
+        spritePreview.SetBackgroundColor(
+            Color.Rgb(35, 35, 35)
+        );
+
+        spritePreview.SetScaleType(
+            ImageView.ScaleType.FitCenter
+        );
+
+        detailPanel.AddView(
+            spritePreview,
+            new LinearLayout.LayoutParams(
+                -1,
+                450
+            )
+        );
+
+        // ---------------- FRAME TEXT ----------------
+
+        frameText =
+            MakeText(
+                "Frame 1",
+                15
+            );
+
+        frameText.Gravity =
+            GravityFlags.Center;
+
+        frameText.SetTextColor(
+            Color.White
+        );
+
+        detailPanel.AddView(
+            frameText
+        );
+
+        // ---------------- CONTROLS ----------------
+
+        var controls =
+            new LinearLayout(this)
+            {
+                Orientation =
+                    Orientation.Horizontal
+            };
+
+        var previous =
+            MakeButton("◀ PREVIOUS");
+
+        previous.Click += (_, _) =>
+        {
+            ChangeSpriteFrame(-1);
+        };
+
+        controls.AddView(
+            previous,
+            new LinearLayout.LayoutParams(
+                0,
+                -2,
+                1
+            )
+        );
+
+        var next =
+            MakeButton("NEXT ▶");
+
+        next.Click += (_, _) =>
+        {
+            ChangeSpriteFrame(1);
+        };
+
+        controls.AddView(
+            next,
+            new LinearLayout.LayoutParams(
+                0,
+                -2,
+                1
+            )
+        );
+
+        detailPanel.AddView(
+            controls
+        );
+
+        SetStatus(
+            $"Sprite: {spriteName}"
+        );
+
+        RenderSpriteFrame();
+    }
+
+    void ChangeSpriteFrame(
+        int amount
+    )
+    {
+        if (selectedSprite == null)
+            return;
+
+        int count =
+            selectedSprite.Textures.Count;
+
+        if (count == 0)
+            return;
+
+        selectedFrame += amount;
+
+        if (selectedFrame < 0)
+            selectedFrame = count - 1;
+
+        if (selectedFrame >= count)
+            selectedFrame = 0;
+
+        RenderSpriteFrame();
+    }
+
+    // =========================================================
+    // RENDER SPRITE FRAME
+    // =========================================================
+
+    void RenderSpriteFrame()
+    {
+        if (
+            selectedSprite == null ||
+            spritePreview == null
+        )
+        {
+            return;
+        }
+
+        var sprite =
+            selectedSprite;
+
+        int frame =
+            selectedFrame;
+
+        if (
+            sprite.Textures == null ||
+            sprite.Textures.Count == 0
+        )
+        {
+            frameText!.Text =
+                "No frames";
+
+            return;
+        }
+
+        frameText!.Text =
+            $"Frame {frame + 1} / " +
+            $"{sprite.Textures.Count}";
+
+        SetStatus(
+            "Rendering sprite..."
+        );
+
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                var textureEntry =
+                    sprite.Textures[frame];
+
+                if (
+                    textureEntry == null ||
+                    textureEntry.Texture == null
+                )
+                {
+                    throw new Exception(
+                        "Sprite frame has no texture."
+                    );
+                }
+
+                var image =
+                    TextureWorker.GetTextureFor(
+                        textureEntry.Texture
+                    );
+
+                if (image == null)
+                {
+                    throw new Exception(
+                        "Could not render texture."
+                    );
+                }
+
+                byte[] pngBytes;
+
+                using (image)
+                using (var memory =
+                    new MemoryStream())
+                {
+                    image.Write(
+                        memory,
+                        MagickFormat.Png32
+                    );
+
+                    pngBytes =
+                        memory.ToArray();
+                }
+
+                RunOnUiThread(() =>
+                {
+                    try
+                    {
+                        var bitmap =
+                            BitmapFactory.DecodeByteArray(
+                                pngBytes,
+                                0,
+                                pngBytes.Length
+                            );
+
+                        if (bitmap == null)
+                        {
+                            throw new Exception(
+                                "Android could not decode sprite."
+                            );
+                        }
+
+                        // Keep the bitmap alive.
+                        var oldBitmap =
+                            currentBitmap;
+
+                        currentBitmap =
+                            bitmap;
+
+                        spritePreview!.SetImageBitmap(
+                            currentBitmap
+                        );
+
+                        oldBitmap?.Recycle();
+
+                        SetStatus(
+                            $"Rendered frame {frame + 1}."
+                        );
+                    }
+                    catch (Exception ex)
+                    {
+                        SetStatus(
+                            "Preview error: " +
+                            ex.Message
+                        );
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                RunOnUiThread(() =>
+                {
+                    SetStatus(
+                        "Sprite error: " +
+                        ex.Message
+                    );
+                });
+            }
+        });
+    }
+
+    // =========================================================
+    // DETAILS
+    // =========================================================
+
     void ShowDetails(
         string title,
         string description
@@ -505,8 +913,22 @@ public class MainActivity : Activity
 
         detailPanel.RemoveAllViews();
 
+        spritePreview = null;
+        frameText = null;
+        selectedSprite = null;
+
+        var oldBitmap =
+            currentBitmap;
+
+        currentBitmap = null;
+
+        oldBitmap?.Recycle();
+
         var titleView =
-            MakeText(title, 22);
+            MakeText(
+                title,
+                22
+            );
 
         titleView.SetTextColor(
             Color.White
@@ -530,34 +952,4 @@ public class MainActivity : Activity
             separator
         );
 
-        var body =
-            MakeText(
-                description,
-                15
-            );
-
-        body.SetTextColor(
-            Color.LightGray
-        );
-
-        detailPanel.AddView(
-            body
-        );
-    }
-
-    void SetStatus(
-        string message
-    )
-    {
-        if (statusText != null)
-            statusText.Text = message;
-    }
-
-    protected override void OnDestroy()
-    {
-        gameData?.Dispose();
-        gameData = null;
-
-        base.OnDestroy();
-    }
-}
+ 
